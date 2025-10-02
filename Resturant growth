@@ -1,0 +1,34 @@
+WITH DailyTotal AS (
+    -- 1. Sum up the amounts per day
+    SELECT
+        visited_on,
+        SUM(amount) AS total_amount
+    FROM Customer
+    GROUP BY visited_on
+), Windowed AS (
+    -- 2. Use window functions to compute running sums/averages
+    SELECT
+        visited_on,
+        total_amount,
+        SUM(total_amount) OVER (
+            ORDER BY visited_on
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS sum_last7,
+        -- average over last 7 days: divide by 7.0 to force decimal
+        ROUND(
+            SUM(total_amount) OVER (
+                ORDER BY visited_on
+                ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+            ) * 1.0 / 7, 
+            2
+        ) AS average_amount,
+        ROW_NUMBER() OVER (ORDER BY visited_on) AS rn
+    FROM DailyTotal
+)
+SELECT
+    visited_on,
+    sum_last7 AS amount,
+    average_amount
+FROM Windowed
+WHERE rn >= 7
+ORDER BY visited_on;
