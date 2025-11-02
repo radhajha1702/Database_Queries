@@ -1,0 +1,71 @@
+-- MySQL 8+ solution for LeetCode 3482
+WITH RECURSIVE
+-- 1) Compute levels: CEO(s) (manager_id IS NULL) => level = 1, others level = parent's level + 1
+Levels AS (
+  SELECT
+    employee_id,
+    employee_name,
+    manager_id,
+    salary,
+    1 AS level
+  FROM Employees
+  WHERE manager_id IS NULL
+
+  UNION ALL
+
+  SELECT
+    e.employee_id,
+    e.employee_name,
+    e.manager_id,
+    e.salary,
+    l.level + 1
+  FROM Employees e
+  JOIN Levels l ON e.manager_id = l.employee_id
+),
+
+-- 2) Build transitive closure of manager -> subordinate (including self as subordinate)
+--    Each row: manager_id, subordinate_id, subordinate_salary
+Subordinates AS (
+  -- base: each employee is a subordinate of themself (helps budget include own salary)
+  SELECT
+    employee_id AS manager_id,
+    employee_id AS subordinate_id,
+    salary        AS subordinate_salary
+  FROM Employees
+
+  UNION ALL
+
+  -- recursive: if X reports to Y, and Z is subordinate of X, then Z is also subordinate of Y
+  SELECT
+    e.manager_id AS manager_id,
+    s.subordinate_id,
+    s.subordinate_salary
+  FROM Employees e
+  JOIN Subordinates s
+    ON e.employee_id = s.manager_id
+  WHERE e.manager_id IS NOT NULL
+)
+
+-- 3) Aggregate team_size and budget per manager, then join levels and produce final output
+SELECT
+  L.employee_id,
+  L.employee_name,
+  L.level,
+  -- team_size excludes the manager themself, so subtract 1
+  (COALESCE(t.team_size, 0) - 1) AS team_size,
+  -- budget is sum of subordinate salaries (including own salary)
+  COALESCE(t.budget, L.salary) AS budget
+FROM Levels L
+LEFT JOIN (
+  SELECT
+    manager_id,
+    COUNT(*)                       AS team_size,
+    SUM(subordinate_salary)        AS budget
+  FROM Subordinates
+  GROUP BY manager_id
+) t
+  ON L.employee_id = t.manager_id
+ORDER BY
+  L.level      ASC,
+  COALESCE(t.budget, L.salary) DESC,
+  L.employee_name ASC;
